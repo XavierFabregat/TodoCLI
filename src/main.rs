@@ -2,9 +2,9 @@ use clap::{Parser, Subcommand};
 use colored::*;
 use std::path::PathBuf;
 
-mod commands;
-mod db;
-mod models;
+pub mod commands;
+pub mod db;
+pub mod models;
 
 use commands::{add_task, complete_task, delete_task, list_tasks, show_task, update_task};
 use db::Database;
@@ -78,7 +78,7 @@ enum Commands {
 }
 
 #[derive(clap::ValueEnum, Clone, Debug)]
-enum Priority {
+pub enum Priority {
     Low,
     Medium,
     High,
@@ -157,4 +157,136 @@ fn get_db_path() -> anyhow::Result<PathBuf> {
         dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
     path.push(".todo.db");
     Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    fn create_test_db() -> (Database, NamedTempFile) {
+        let temp_file = NamedTempFile::new().unwrap();
+        let db = Database::new(temp_file.path()).unwrap();
+        db.init().unwrap();
+        (db, temp_file)
+    }
+
+    #[test]
+    fn test_priority_to_int() {
+        assert_eq!(Priority::Low.to_int(), 0);
+        assert_eq!(Priority::Medium.to_int(), 1);
+        assert_eq!(Priority::High.to_int(), 2);
+    }
+
+    #[test]
+    fn test_priority_from_int() {
+        assert!(matches!(Priority::from_int(0), Priority::Low));
+        assert!(matches!(Priority::from_int(1), Priority::Medium));
+        assert!(matches!(Priority::from_int(2), Priority::High));
+        assert!(matches!(Priority::from_int(99), Priority::Medium)); // Default case
+    }
+
+    #[test]
+    fn test_priority_color() {
+        let low_color = Priority::Low.color();
+        let medium_color = Priority::Medium.color();
+        let high_color = Priority::High.color();
+
+        assert!(low_color.to_string().contains("LOW"));
+        assert!(medium_color.to_string().contains("MEDIUM"));
+        assert!(high_color.to_string().contains("HIGH"));
+    }
+
+    #[test]
+    fn test_get_db_path() {
+        let result = get_db_path();
+        assert!(result.is_ok());
+
+        let path = result.unwrap();
+        assert!(path.to_string_lossy().contains(".todo.db"));
+    }
+
+    #[test]
+    fn test_database_initialization() {
+        let (db, _temp_file) = create_test_db();
+
+        // Test that database is properly initialized
+        let task = models::Task::new("Test task".to_string(), None, None, 1);
+
+        let id = db.add_task(&task).unwrap();
+        assert_eq!(id, 1);
+    }
+
+    #[test]
+    fn test_cli_commands_enum() {
+        // Test that all command variants exist
+        let _add = Commands::Add {
+            title: "Test".to_string(),
+            description: None,
+            due: None,
+            priority: Priority::Medium,
+        };
+
+        let _list = Commands::List {
+            completed: false,
+            priority: None,
+        };
+
+        let _complete = Commands::Complete { id: 1 };
+        let _delete = Commands::Delete { id: 1 };
+        let _show = Commands::Show { id: 1 };
+
+        let _update = Commands::Update {
+            id: 1,
+            title: None,
+            description: None,
+            due: None,
+            priority: None,
+        };
+    }
+
+    #[test]
+    fn test_priority_enum_variants() {
+        // Test that all priority variants exist
+        let _low = Priority::Low;
+        let _medium = Priority::Medium;
+        let _high = Priority::High;
+    }
+
+    #[test]
+    fn test_cli_struct() {
+        // Test that CLI struct can be created
+        let _cli = Cli {
+            command: Commands::List {
+                completed: false,
+                priority: None,
+            },
+        };
+    }
+
+    #[test]
+    fn test_priority_ordering() {
+        // Test that priorities are ordered correctly
+        let priorities = vec![Priority::Low, Priority::Medium, Priority::High];
+        let int_values: Vec<i32> = priorities.iter().map(|p| p.to_int()).collect();
+
+        assert_eq!(int_values, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_priority_roundtrip() {
+        // Test that priority conversion is reversible
+        let original = Priority::High;
+        let int_value = original.to_int();
+        let converted = Priority::from_int(int_value);
+
+        assert!(matches!(converted, Priority::High));
+    }
+
+    #[test]
+    fn test_invalid_priority_handling() {
+        // Test that invalid priority values default to Medium
+        let invalid_priority = Priority::from_int(999);
+        assert!(matches!(invalid_priority, Priority::Medium));
+    }
 }

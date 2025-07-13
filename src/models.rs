@@ -116,3 +116,176 @@ impl Task {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{Duration, Utc};
+
+    fn create_test_task() -> Task {
+        Task::new(
+            "Test task".to_string(),
+            Some("Test description".to_string()),
+            Some(Utc::now() + Duration::days(1)),
+            1,
+        )
+    }
+
+    #[test]
+    fn test_task_creation() {
+        let task = create_test_task();
+        
+        assert_eq!(task.title, "Test task");
+        assert_eq!(task.description, Some("Test description".to_string()));
+        assert_eq!(task.priority, 1);
+        assert_eq!(task.completed, false);
+        assert!(task.id.is_none());
+    }
+
+    #[test]
+    fn test_priority_text() {
+        let mut task = create_test_task();
+        
+        task.priority = 0;
+        assert_eq!(task.priority_text(), "LOW");
+        
+        task.priority = 1;
+        assert_eq!(task.priority_text(), "MEDIUM");
+        
+        task.priority = 2;
+        assert_eq!(task.priority_text(), "HIGH");
+        
+        task.priority = 99;
+        assert_eq!(task.priority_text(), "MEDIUM"); // Default case
+    }
+
+    #[test]
+    fn test_due_date_text() {
+        let mut task = create_test_task();
+        
+        // With due date
+        let due_date = Utc::now() + Duration::days(1);
+        task.due_date = Some(due_date);
+        let due_text = task.due_date_text();
+        assert!(due_text.contains(&due_date.format("%Y-%m-%d").to_string()));
+        
+        // Without due date
+        task.due_date = None;
+        assert_eq!(task.due_date_text(), "No due date");
+    }
+
+    #[test]
+    fn test_is_overdue() {
+        let mut task = create_test_task();
+        
+        // Future date - not overdue
+        task.due_date = Some(Utc::now() + Duration::days(1));
+        assert!(!task.is_overdue());
+        
+        // Past date - overdue
+        task.due_date = Some(Utc::now() - Duration::days(1));
+        assert!(task.is_overdue());
+        
+        // Completed task - not overdue even if past due
+        task.completed = true;
+        assert!(!task.is_overdue());
+        
+        // No due date - not overdue
+        task.due_date = None;
+        task.completed = false;
+        assert!(!task.is_overdue());
+    }
+
+    #[test]
+    fn test_display_summary() {
+        let mut task = create_test_task();
+        task.id = Some(42);
+        
+        let summary = task.display_summary();
+        assert!(summary.contains("[42]"));
+        assert!(summary.contains("Test task"));
+        assert!(summary.contains("MEDIUM"));
+    }
+
+    #[test]
+    fn test_display_detailed() {
+        let mut task = create_test_task();
+        task.id = Some(42);
+        
+        let detailed = task.display_detailed();
+        assert!(detailed.contains("Task #42:"));
+        assert!(detailed.contains("Test task"));
+        assert!(detailed.contains("Test description"));
+        assert!(detailed.contains("MEDIUM"));
+    }
+
+    #[test]
+    fn test_task_with_id() {
+        let mut task = create_test_task();
+        task.id = Some(123);
+        
+        assert_eq!(task.id, Some(123));
+    }
+
+    #[test]
+    fn test_task_serialization() {
+        let task = create_test_task();
+        
+        // Test serialization
+        let json = serde_json::to_string(&task).unwrap();
+        assert!(json.contains("Test task"));
+        assert!(json.contains("Test description"));
+        
+        // Test deserialization
+        let deserialized_task: Task = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized_task.title, task.title);
+        assert_eq!(deserialized_task.description, task.description);
+        assert_eq!(deserialized_task.priority, task.priority);
+    }
+
+    #[test]
+    fn test_task_without_description() {
+        let task = Task::new(
+            "Simple task".to_string(),
+            None,
+            None,
+            0,
+        );
+        
+        assert_eq!(task.title, "Simple task");
+        assert_eq!(task.description, None);
+        assert_eq!(task.priority, 0);
+        assert_eq!(task.completed, false);
+    }
+
+    #[test]
+    fn test_high_priority_task() {
+        let task = Task::new(
+            "Urgent task".to_string(),
+            Some("Very important".to_string()),
+            Some(Utc::now() + Duration::hours(1)),
+            2,
+        );
+        
+        assert_eq!(task.priority_text(), "HIGH");
+        assert_eq!(task.title, "Urgent task");
+        assert!(task.due_date.is_some());
+    }
+
+    #[test]
+    fn test_completed_task_status() {
+        let mut task = create_test_task();
+        task.completed = true;
+        
+        let status = task.status_text();
+        assert!(status.to_string().contains("COMPLETED"));
+    }
+
+    #[test]
+    fn test_pending_task_status() {
+        let task = create_test_task();
+        
+        let status = task.status_text();
+        assert!(status.to_string().contains("PENDING"));
+    }
+}

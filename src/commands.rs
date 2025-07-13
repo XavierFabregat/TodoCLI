@@ -132,20 +132,133 @@ pub fn show_task(db: &Database, id: i32) -> Result<()> {
 
 fn parse_due_date(date_str: &str) -> Result<DateTime<Utc>> {
     // Try parsing as YYYY-MM-DD format
-    if let Ok(naive_date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+    let parsed = if let Ok(naive_date) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
         let naive_datetime = naive_date.and_hms_opt(0, 0, 0).unwrap();
-        return Ok(DateTime::<Utc>::from_naive_utc_and_offset(
-            naive_datetime,
-            Utc,
+        DateTime::<Utc>::from_naive_utc_and_offset(naive_datetime, Utc)
+    } else if let Ok(datetime) = DateTime::parse_from_rfc3339(date_str) {
+        datetime.with_timezone(&Utc)
+    } else {
+        return Err(anyhow::anyhow!(
+            "Invalid date format. Please use YYYY-MM-DD or RFC3339 format"
         ));
+    };
+
+    if parsed < Utc::now() {
+        return Err(anyhow::anyhow!("Due date must be in the future"));
     }
 
-    // Try parsing as RFC3339 format
-    if let Ok(datetime) = DateTime::parse_from_rfc3339(date_str) {
-        return Ok(datetime.with_timezone(&Utc));
+    Ok(parsed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::Database;
+    use tempfile::NamedTempFile;
+
+    fn create_test_db() -> (Database, NamedTempFile) {
+        let temp_file = NamedTempFile::new().unwrap();
+        let db = Database::new(temp_file.path()).unwrap();
+        db.init().unwrap();
+        (db, temp_file)
     }
 
-    Err(anyhow::anyhow!(
-        "Invalid date format. Please use YYYY-MM-DD or RFC3339 format"
-    ))
+    #[test]
+    fn test_add_task() {
+        let (db, _temp_file) = create_test_db();
+
+        let priority = crate::Priority::High;
+        add_task(
+            &db,
+            "Test task",
+            Some("Test description"),
+            Some("2024-12-31"),
+            &priority,
+        )
+        .unwrap();
+
+        let tasks = db.get_all_tasks(true, None).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].title, "Test task");
+        assert_eq!(tasks[0].priority, 2); // High priority
+    }
+
+    #[test]
+    fn test_parse_due_date() {
+        // Test YYYY-MM-DD format
+        let date = parse_due_date("2024-12-31").unwrap();
+        assert_eq!(date.format("%Y-%m-%d").to_string(), "2024-12-31");
+
+        // Test RFC3339 format
+        let rfc_date = parse_due_date("2024-12-31T00:00:00Z").unwrap();
+        assert_eq!(rfc_date.format("%Y-%m-%d").to_string(), "2024-12-31");
+
+        // Test invalid format
+        assert!(parse_due_date("invalid-date").is_err());
+    }
+
+    #[test]
+    fn test_complete_task() {
+        let (db, _temp_file) = create_test_db();
+
+        // Add a task first
+        let priority = crate::Priority::Medium;
+        add_task(&db, "Test task", None, None, &priority).unwrap();
+
+        // Complete the task
+        complete_task(&db, 1).unwrap();
+
+        let task = db.get_task_by_id(1).unwrap().unwrap();
+        assert!(task.completed);
+    }
+
+    #[test]
+    fn test_complete_nonexistent_task() {
+        let (db, _temp_file) = create_test_db();
+
+        let result = complete_task(&db, 999);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_delete_task() {
+        let (db, _temp_file) = create_test_db();
+
+        // Add a task first
+        let priority = crate::Priority::Medium;
+        add_task(&db, "Test task", None, None, &priority).unwrap();
+
+        // Delete the task
+        delete_task(&db, 1).unwrap();
+
+        // Verify task is deleted
+        assert!(db.get_task_by_id(1).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_update_task() {
+        let (db, _temp_file) = create_test_db();
+
+        // Add a task first
+        let priority = crate::Priority::Medium;
+        add_task(&db, "Original title", None, None, &priority).unwrap();
+
+        // Update the task
+        let new_priority = crate::Priority::High;
+        update_task(
+            &db,
+            1,
+            Some("New title"),
+            Some("New description"),
+            Some("2024-12-31"),
+            Some(&new_priority),
+        )
+        .unwrap();
+
+        let task = db.get_task_by_id(1).unwrap().unwrap();
+        assert_eq!(task.title, "New title");
+        assert_eq!(task.description, Some("New description".to_string()));
+        assert_eq!(task.priority, 2); // High priority
+    }
 }
