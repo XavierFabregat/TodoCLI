@@ -174,3 +174,124 @@ impl Database {
         Ok(count > 0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::NamedTempFile;
+
+    fn create_test_db() -> (Database, NamedTempFile) {
+        let temp_file = NamedTempFile::new().unwrap();
+        let db = Database::new(temp_file.path()).unwrap();
+        db.init().unwrap();
+        (db, temp_file)
+    }
+
+    fn create_test_task() -> Task {
+        Task::new(
+            "Test task".to_string(),
+            Some("Test description".to_string()),
+            Some(Utc::now()),
+            1,
+        )
+    }
+
+    #[test]
+    fn test_database_initialization() {
+        let (db, _temp_file) = create_test_db();
+
+        // Test that we can add a task (table exists)
+        let task = create_test_task();
+        let id = db.add_task(&task).unwrap();
+        assert_eq!(id, 1);
+    }
+
+    #[test]
+    fn test_add_and_get_task() {
+        let (db, _temp_file) = create_test_db();
+
+        let task = create_test_task();
+        let id = db.add_task(&task).unwrap();
+
+        let retrieved_task = db.get_task_by_id(id).unwrap().unwrap();
+        assert_eq!(retrieved_task.title, "Test task");
+        assert_eq!(
+            retrieved_task.description,
+            Some("Test description".to_string())
+        );
+        assert_eq!(retrieved_task.priority, 1);
+        assert_eq!(retrieved_task.completed, false);
+    }
+
+    #[test]
+    fn test_get_all_tasks() {
+        let (db, _temp_file) = create_test_db();
+
+        // Add multiple tasks
+        let task1 = Task::new("Task 1".to_string(), None, None, 0);
+        let task2 = Task::new("Task 2".to_string(), None, None, 2);
+
+        db.add_task(&task1).unwrap();
+        db.add_task(&task2).unwrap();
+
+        let tasks = db.get_all_tasks(true, None).unwrap();
+        assert_eq!(tasks.len(), 2);
+
+        // Test priority filtering
+        let high_priority_tasks = db.get_all_tasks(true, Some(2)).unwrap();
+        assert_eq!(high_priority_tasks.len(), 1);
+        assert_eq!(high_priority_tasks[0].title, "Task 2");
+    }
+
+    #[test]
+    fn test_complete_task() {
+        let (db, _temp_file) = create_test_db();
+
+        let task = create_test_task();
+        let id = db.add_task(&task).unwrap();
+
+        // Complete the task
+        db.complete_task(id).unwrap();
+
+        let completed_task = db.get_task_by_id(id).unwrap().unwrap();
+        assert!(completed_task.completed);
+    }
+
+    #[test]
+    fn test_delete_task() {
+        let (db, _temp_file) = create_test_db();
+
+        let task = create_test_task();
+        let id = db.add_task(&task).unwrap();
+
+        // Verify task exists
+        assert!(db.task_exists(id).unwrap());
+
+        // Delete the task
+        db.delete_task(id).unwrap();
+
+        // Verify task is deleted
+        assert!(!db.task_exists(id).unwrap());
+        assert!(db.get_task_by_id(id).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_update_task() {
+        let (db, _temp_file) = create_test_db();
+
+        let task = create_test_task();
+        let id = db.add_task(&task).unwrap();
+
+        // Update the task
+        let mut updated_task = db.get_task_by_id(id).unwrap().unwrap();
+        updated_task.title = "Updated task".to_string();
+        updated_task.priority = 2;
+
+        db.update_task(id, &updated_task).unwrap();
+
+        let retrieved_task = db.get_task_by_id(id).unwrap().unwrap();
+        assert_eq!(retrieved_task.title, "Updated task");
+        assert_eq!(retrieved_task.priority, 2);
+    }
+}

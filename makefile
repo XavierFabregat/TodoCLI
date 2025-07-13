@@ -63,6 +63,9 @@ build:
 test:
 	cargo test
 
+test-coverage:
+	cargo tarpaulin --out Html
+
 check:
 	cargo check
 
